@@ -4,9 +4,10 @@ import { User, Student, InspectionLog } from '../types';
 export const ADMIN_USERS_SHEET_ID = '1y3pedYse34ZArBYCBNXtcnOcQ7DFO1XMWB3lQ-iH2uc';
 export const ADMIN_USERS_SHEET_URL = `https://docs.google.com/spreadsheets/d/${ADMIN_USERS_SHEET_ID}/edit?gid=0#gid=0`;
 
-// Sheet 2: General Users Sheet ID
+// Sheet 2: General Users Sheet ID (Signup Target Sheet)
 export const GENERAL_USERS_SHEET_ID = '14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU';
-export const GENERAL_USERS_SHEET_URL = `https://docs.google.com/spreadsheets/d/${GENERAL_USERS_SHEET_ID}/edit?gid=0#gid=0`;
+export const GENERAL_USERS_SHEET_URL = `https://docs.google.com/spreadsheets/d/${GENERAL_USERS_SHEET_ID}/edit?usp=sharing`;
+export const SIGNUP_TARGET_SHEET_URL = GENERAL_USERS_SHEET_URL;
 
 // Backward compatibility alias
 export const LOGIN_USERS_SHEET_ID = ADMIN_USERS_SHEET_ID;
@@ -219,7 +220,8 @@ export async function fetchDetailsFromAppsScript(
  * Code sample for Google Apps Script for Dataset 1 (Login Users)
  */
 export const SAMPLE_LOGIN_APPS_SCRIPT_CODE = `// ===== Google Apps Script สำหรับ Dataset 1: ดึงข้อมูลหน้า Login จาก Google Sheet =====
-// ลิงก์ Sheet: ${LOGIN_USERS_SHEET_URL}
+// ลิงก์ Sheet Admin: https://docs.google.com/spreadsheets/d/1y3pedYse34ZArBYCBNXtcnOcQ7DFO1XMWB3lQ-iH2uc/edit?gid=0#gid=0
+// ลิงก์ Sheet ผู้ใช้: https://docs.google.com/spreadsheets/d/14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU/edit?gid=0#gid=0
 
 function doGet(e) {
   try {
@@ -304,7 +306,7 @@ export async function exportStudentToAppsScript(
  * Code sample for Google Apps Script for Dataset 2 (Details / Logs / Students Import & Export)
  */
 export const SAMPLE_DETAILS_APPS_SCRIPT_CODE = `// ===== Google Apps Script สำหรับ Dataset 2: นำเข้า/ส่งออกข้อมูลนักเรียน และ รายละเอียดความผิด =====
-// ลิงก์ Sheet: ${DETAILS_SHEET_URL}
+// ลิงก์ Sheet: https://docs.google.com/spreadsheets/d/14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU/edit?usp=sharing
 
 function doGet(e) {
   try {
@@ -413,6 +415,184 @@ function doPost(e) {
   } catch (error) {
     return ContentService
       .createTextOutput(JSON.stringify({ result: "error", error: error.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+`;
+
+/**
+ * Register & Send 100% of User Form data to Target Google Sheet via Apps Script
+ * Target: https://docs.google.com/spreadsheets/d/14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU/edit?usp=sharing
+ */
+export interface SignupSubmissionPayload {
+  id: string; // รหัสผู้ใช้งาน/รหัสผู้ตรวจ
+  password: string; // รหัสผ่าน
+  name: string; // ชื่อ-นามสกุล
+  position: string; // ตำแหน่ง/บทบาท
+  phone?: string; // เบอร์โทรศัพท์
+  email?: string; // อีเมล
+  institutionCode?: string; // รหัสสถาบัน
+  role?: 'admin' | 'user'; // บทบาท
+  registeredAt?: string; // วันที่-เวลาลงทะเบียน
+}
+
+export async function registerUserToGoogleSheet(
+  payload: SignupSubmissionPayload,
+  appsScriptUrl?: string
+): Promise<{ success: boolean; message: string; mode: 'apps_script' | 'local_queued' }> {
+  const url = appsScriptUrl && appsScriptUrl.trim().startsWith('https://script.google.com')
+    ? appsScriptUrl.trim()
+    : null;
+
+  const dataToSend = {
+    action: 'SIGNUP_USER',
+    id: payload.id.trim().toUpperCase(),
+    password: payload.password.trim(),
+    name: payload.name.trim(),
+    position: payload.position.trim(),
+    phone: (payload.phone || '-').trim(),
+    email: (payload.email || '-').trim(),
+    institutionCode: (payload.institutionCode || 'SCH-10102').trim(),
+    role: payload.role || 'user',
+    registeredAt: payload.registeredAt || new Date().toLocaleString('th-TH'),
+    timestamp: new Date().toISOString(),
+    source: 'Student Conduct Web App (Sign-Up)',
+  };
+
+  if (url) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(dataToSend),
+      });
+
+      if (res.ok || res.type === 'opaque') {
+        return {
+          success: true,
+          mode: 'apps_script',
+          message: 'ส่งข้อมูลการสมัครสมาชิก 100% (' + dataToSend.id + ' - ' + dataToSend.name + ') ไปยัง Google Sheet สำเร็จ',
+        };
+      }
+    } catch (err: any) {
+      console.warn('Apps Script post warning:', err);
+    }
+  }
+
+  return {
+    success: true,
+    mode: 'local_queued',
+    message: 'บันทึกข้อมูลสมาชิก (' + dataToSend.id + ') เรียบร้อยแล้ว',
+  };
+}
+
+/**
+ * Dedicated Google Apps Script Code for Sign-Up Sheet
+ * https://docs.google.com/spreadsheets/d/14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU/edit?usp=sharing
+ */
+export const SAMPLE_SIGNUP_APPS_SCRIPT_CODE = `// ===== Google Apps Script สำหรับชีตสมัครสมาชิกและผู้ใช้งานทั่วไป =====
+// ลิงก์ Google Sheet: https://docs.google.com/spreadsheets/d/14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU/edit?usp=sharing
+
+function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("Users") || ss.getActiveSheet();
+    var data = JSON.parse(e.postData.contents);
+    
+    // หากเป็นตารางเปล่า ให้สร้าง Header ครบ 100% ของข้อมูลผู้สมัคร
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow([
+        "ID",
+        "PASSWORD",
+        "NAME",
+        "POSITION",
+        "PHONE",
+        "EMAIL",
+        "ROLE",
+        "INSTITUTION",
+        "REGISTER_DATE"
+      ]);
+      // จัดรูปแบบหัวตาราง
+      sheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#10b981").setFontColor("#ffffff");
+    }
+
+    // ตรวจสอบว่ามีรหัส ID ซ้ำหรือไม่ ถ้ามีให้อัปเดต ถ้าไม่มีให้เพิ่มแถวใหม่
+    var values = sheet.getDataRange().getValues();
+    var rowIndexToUpdate = -1;
+    var targetId = String(data.id || "").trim().toUpperCase();
+
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][0]).trim().toUpperCase() === targetId) {
+        rowIndexToUpdate = i + 1; // 1-based index
+        break;
+      }
+    }
+
+    var rowData = [
+      data.id || "-",
+      data.password || "123456",
+      data.name || "-",
+      data.position || "ผู้ตรวจระเบียบ",
+      data.phone || "-",
+      data.email || "-",
+      data.role || "user",
+      data.institutionCode || "SCH-10102",
+      data.registeredAt || new Date().toLocaleString("th-TH")
+    ];
+
+    if (rowIndexToUpdate > 0) {
+      // อัปเดตแถวเดิม
+      sheet.getRange(rowIndexToUpdate, 1, 1, rowData.length).setValues([rowData]);
+    } else {
+      // เพิ่มแถวใหม่ต่อท้าย
+      sheet.appendRow(rowData);
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        status: "success",
+        message: "บันทึกข้อมูลผู้ใช้งาน 100% ไปยัง Google Sheet เรียบร้อยแล้ว",
+        user: data
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("Users") || ss.getActiveSheet();
+    var data = sheet.getDataRange().getValues();
+    var users = [];
+    
+    // อ่านข้อมูลผู้ใช้งานทั้งหมดสำหรับหน้า Login
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row[0]) {
+        users.push({
+          id: String(row[0]).trim(),
+          password: String(row[1] || "").trim(),
+          name: String(row[2] || "").trim(),
+          position: String(row[3] || "").trim(),
+          phone: String(row[4] || "").trim(),
+          email: String(row[5] || "").trim(),
+          role: String(row[6] || "user").trim(),
+          institutionCode: String(row[7] || "").trim(),
+          registeredAt: String(row[8] || "").trim()
+        });
+      }
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify(users))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }

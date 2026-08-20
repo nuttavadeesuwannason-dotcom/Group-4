@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { InspectionLog, Student, ViolationCategory } from '../types';
+import { InspectionLog, Student, ViolationCategory, User } from '../types';
 import { GRADE_CLASS_LIST } from '../data/initialData';
 import { 
   Search, 
@@ -19,13 +19,17 @@ import {
   X,
   FileSpreadsheet,
   Download,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  ShieldCheck,
+  User as UserIcon
 } from 'lucide-react';
 
 interface HistoryListProps {
   logs: InspectionLog[];
   students: Student[];
   categories: ViolationCategory[];
+  currentUser?: User | null;
   onUpdateLog: (updatedLog: InspectionLog) => void;
   onDeleteLog: (logId: string) => void;
   onOpenPrintModal: (log: InspectionLog) => void;
@@ -36,13 +40,16 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   logs,
   students,
   categories,
+  currentUser,
   onUpdateLog,
   onDeleteLog,
   onOpenPrintModal,
   onImportDetailsFromSheet,
 }) => {
+  const isAdmin = currentUser?.role === 'admin';
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('');
+  const [onlyMyLogs, setOnlyMyLogs] = useState(false);
   
   // Edit Modal State
   const [editingLog, setEditingLog] = useState<InspectionLog | null>(null);
@@ -82,6 +89,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       const matchGrade = selectedGrade === '' || log.gradeClass === selectedGrade;
+      const matchMine = !onlyMyLogs || (currentUser && log.inspectorId.toLowerCase() === currentUser.id.toLowerCase());
       const term = searchTerm.toLowerCase().trim();
       const matchSearch =
         term === '' ||
@@ -90,9 +98,9 @@ export const HistoryList: React.FC<HistoryListProps> = ({
         (log.inspectorName && log.inspectorName.toLowerCase().includes(term)) ||
         log.id.toLowerCase().includes(term) ||
         log.violations.some((v) => v.toLowerCase().includes(term));
-      return matchGrade && matchSearch;
+      return matchGrade && matchMine && matchSearch;
     });
-  }, [logs, selectedGrade, searchTerm]);
+  }, [logs, selectedGrade, searchTerm, onlyMyLogs, currentUser]);
 
   // Open Edit Modal
   const handleStartEdit = (log: InspectionLog) => {
@@ -207,20 +215,36 @@ export const HistoryList: React.FC<HistoryListProps> = ({
             )}
           </div>
 
-          <div className="md:col-span-4">
+          <div className="md:col-span-4 flex items-center gap-2">
             <select
               id="select-history-grade"
               value={selectedGrade}
               onChange={(e) => setSelectedGrade(e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
             >
-              <option value="">-- กรองชั้นเรียนทั้งหมด --</option>
+              <option value="">-- ทุกชั้นเรียน --</option>
               {GRADE_CLASS_LIST.map((g) => (
                 <option key={g} value={g}>
                   {g}
                 </option>
               ))}
             </select>
+
+            {currentUser && (
+              <button
+                type="button"
+                onClick={() => setOnlyMyLogs(!onlyMyLogs)}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border flex items-center gap-1.5 shrink-0 ${
+                  onlyMyLogs
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-300'
+                }`}
+                title="กรองเฉพาะรายการที่บัญชีของคุณเป็นผู้บันทึก"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>เฉพาะของฉัน</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -230,6 +254,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
         {filteredLogs.length > 0 ? (
           filteredLogs.map((log) => {
             const studentObj = students.find((s) => s.studentId === log.studentId);
+            const canModify = isAdmin || (currentUser && log.inspectorId.toLowerCase() === currentUser.id.toLowerCase());
             return (
               <div
                 key={log.id}
@@ -258,6 +283,11 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                         <span className="flex items-center gap-1">
                           <UserCheck className="w-3 h-3 text-slate-400" />
                           ผู้ตรวจ: {log.inspectorName || log.inspectorId}
+                          {currentUser && log.inspectorId.toLowerCase() === currentUser.id.toLowerCase() && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 rounded">
+                              (คุณ)
+                            </span>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -279,24 +309,46 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                     </button>
 
                     {/* Edit Button */}
-                    <button
-                      onClick={() => handleStartEdit(log)}
-                      title="แก้ไขความผิดกรณีติ๊กพลาด"
-                      className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200 transition-colors flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline text-[11px]">แก้ไข</span>
-                    </button>
+                    {canModify ? (
+                      <button
+                        onClick={() => handleStartEdit(log)}
+                        title="แก้ไขความผิดกรณีติ๊กพลาด"
+                        className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200 transition-colors flex items-center gap-1"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline text-[11px]">แก้ไข</span>
+                      </button>
+                    ) : (
+                      <button
+                        disabled
+                        title={`สงวนสิทธิ์แก้ไขเฉพาะผู้บันทึก (${log.inspectorName || log.inspectorId}) หรือ Admin`}
+                        className="p-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs font-medium border border-slate-200 cursor-not-allowed flex items-center gap-1 opacity-60"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline text-[11px]">แก้ไข</span>
+                      </button>
+                    )}
 
                     {/* Delete Button */}
-                    <button
-                      onClick={() => setDeletingLog(log)}
-                      title="ลบรายการบันทึกผิด"
-                      className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-medium border border-rose-200 transition-colors flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline text-[11px]">ลบ</span>
-                    </button>
+                    {canModify ? (
+                      <button
+                        onClick={() => setDeletingLog(log)}
+                        title="ลบรายการบันทึกผิด"
+                        className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-medium border border-rose-200 transition-colors flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline text-[11px]">ลบ</span>
+                      </button>
+                    ) : (
+                      <button
+                        disabled
+                        title={`สงวนสิทธิ์ลบเฉพาะผู้บันทึก (${log.inspectorName || log.inspectorId}) หรือ Admin`}
+                        className="p-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs font-medium border border-slate-200 cursor-not-allowed flex items-center gap-1 opacity-60"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline text-[11px]">ลบ</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 

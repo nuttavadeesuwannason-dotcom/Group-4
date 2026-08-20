@@ -331,6 +331,7 @@ export default function App() {
                 logs={logs}
                 students={students}
                 categories={categories}
+                currentUser={currentUser}
                 onUpdateLog={handleUpdateLog}
                 onDeleteLog={handleDeleteLog}
                 onOpenPrintModal={(log) => setPrintModalLog(log)}
@@ -344,6 +345,7 @@ export default function App() {
                 students={students}
                 logs={logs}
                 categories={categories}
+                currentUser={currentUser}
                 onAddStudent={handleAddStudent}
                 onAddCategory={handleAddCategory}
                 onResetData={handleResetData}

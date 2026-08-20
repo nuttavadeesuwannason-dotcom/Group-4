@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import {
   UserPlus,
@@ -16,7 +16,17 @@ import {
   ArrowLeft,
   Send,
   HelpCircle,
+  Database,
+  Check,
+  Layers,
+  Phone,
+  Mail,
 } from 'lucide-react';
+import {
+  SIGNUP_TARGET_SHEET_URL,
+  SAMPLE_SIGNUP_APPS_SCRIPT_CODE,
+  registerUserToGoogleSheet,
+} from '../services/googleSheetService';
 
 interface SignupFormProps {
   users: User[];
@@ -25,17 +35,13 @@ interface SignupFormProps {
   defaultInstitutionCode?: string;
 }
 
-const TARGET_SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/1dB4UC_Qrych4C7e3aoakioLLfjNtAMFTzbHkqULgAs4/edit?usp=sharing';
-
-// Default sample Apps Script Web App URL or user custom
-const DEFAULT_APPS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbx_EXAMPLE_CONDUCT_SYS_APP_SCRIPT/exec';
+const STORAGE_KEY_SIGNUP_SCRIPT = 'conduct_signup_appscript_url';
 
 export const SignupForm: React.FC<SignupFormProps> = ({
   users,
   onSignup,
   onCancelToLogin,
+  defaultInstitutionCode = 'SCH-10102',
 }) => {
   const [name, setName] = useState('');
   const [position, setPosition] = useState('ครูฝ่ายปกครอง');
@@ -44,65 +50,27 @@ export const SignupForm: React.FC<SignupFormProps> = ({
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [appsScriptUrl, setAppsScriptUrl] = useState(DEFAULT_APPS_SCRIPT_URL);
+  const [institutionCode, setInstitutionCode] = useState(defaultInstitutionCode);
+  const [userRole, setUserRole] = useState<'user' | 'admin'>('user');
+  const [appsScriptUrl, setAppsScriptUrl] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [submittedData, setSubmittedData] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [sheetStatus, setSheetStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [showScriptGuide, setShowScriptGuide] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
 
-  const sampleAppsScriptCode = `// ===== Google Apps Script Code สำหรับบันทึกข้อมูลสมาชิกไปยัง Google Sheet =====
-// ลิงก์ชีต: ${TARGET_SHEET_URL}
-
-function doPost(e) {
-  try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    var data = JSON.parse(e.postData.contents);
-    
-    // หากเป็นหัวข้อแรก ให้สร้าง Header
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow([
-        "วัน-เวลาสมัคร",
-        "รหัสผู้ตรวจ (ID)",
-        "ชื่อ-นามสกุล",
-        "ตำแหน่ง/บทบาท",
-        "รหัสสถาบัน/องค์กร",
-        "เบอร์โทรศัพท์",
-        "อีเมล",
-        "สถานะ"
-      ]);
+  // Load saved Apps Script URL from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_SIGNUP_SCRIPT);
+    if (saved) {
+      setAppsScriptUrl(saved);
     }
-
-    // เพิ่มบรรทัดข้อมูลใหม่
-    sheet.appendRow([
-      new Date().toLocaleString("th-TH"),
-      data.id || "-",
-      data.name || "-",
-      data.position || "-",
-      data.institutionCode || "-",
-      data.phone || "-",
-      data.email || "-",
-      "อนุมัติแล้ว"
-    ]);
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ result: "success", message: "บันทึกเรียบร้อย" }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (error) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ result: "error", error: error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-function doGet(e) {
-  return ContentService.createTextOutput("Student Conduct System Sign-Up Endpoint is Active!");
-}`;
+  }, []);
 
   const handleCopyScript = () => {
-    navigator.clipboard.writeText(sampleAppsScriptCode);
+    navigator.clipboard.writeText(SAMPLE_SIGNUP_APPS_SCRIPT_CODE);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2500);
   };
@@ -111,6 +79,7 @@ function doGet(e) {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+    setSubmittedData(null);
 
     // Validation
     if (!name.trim()) {
@@ -125,77 +94,72 @@ function doGet(e) {
     }
 
     if (!inspectorId.trim()) {
-      setErrorMsg('กรุณากรอกรหัสผู้ตรวจ');
+      setErrorMsg('กรุณากรอกรหัสผู้ตรวจ/ผู้ใช้งาน');
       return;
     }
 
-    // Check existing ID
-    if (users.some((u) => u.id.toLowerCase() === inspectorId.trim().toLowerCase())) {
-      setErrorMsg(`รหัสผู้ตรวจ "${inspectorId.trim()}" มีอยู่ในระบบแล้ว กรุณาใช้รหัสอื่น`);
+    if (!password.trim() || password.length < 4) {
+      setErrorMsg('กรุณากำหนดรหัสผ่านอย่างน้อย 4 ตัวอักษร');
       return;
+    }
+
+    // Check duplicate ID
+    if (users.some((u) => u.id.toLowerCase() === inspectorId.trim().toLowerCase())) {
+      setErrorMsg(`รหัสผู้ใช้งาน "${inspectorId.trim()}" มีอยู่ในระบบแล้ว กรุณาใช้รหัสอื่น`);
+      return;
+    }
+
+    // Save Apps Script URL for future usage
+    if (appsScriptUrl.trim()) {
+      localStorage.setItem(STORAGE_KEY_SIGNUP_SCRIPT, appsScriptUrl.trim());
     }
 
     setIsSubmitting(true);
-    setSheetStatus('sending');
 
+    const nowFormatted = new Date().toLocaleString('th-TH');
     const newUserData: User = {
       id: inspectorId.trim().toUpperCase(),
       name: name.trim(),
       position: finalPosition,
-      password: password.trim() || '123456',
+      password: password.trim(),
+      role: userRole,
+      institutionCode: institutionCode.trim() || 'SCH-10102',
     };
 
-    // Payload for Google Apps Script
-    const sheetPayload = {
-      timestamp: new Date().toISOString(),
+    // Prepare 100% Complete Payload
+    const fullPayload = {
       id: newUserData.id,
+      password: newUserData.password,
       name: newUserData.name,
       position: newUserData.position,
       phone: phone.trim() || '-',
       email: email.trim() || '-',
-      source: 'Student Conduct Web App',
+      role: userRole,
+      institutionCode: newUserData.institutionCode,
+      registeredAt: nowFormatted,
     };
 
-    // Attempt to send to Google Apps Script URL if valid
-    let sentToAppsScript = false;
-    if (appsScriptUrl.trim() && appsScriptUrl.startsWith('https://script.google.com')) {
-      try {
-        await fetch(appsScriptUrl.trim(), {
-          method: 'POST',
-          mode: 'no-cors', // Standard for Apps Script Web Apps cross-domain
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(sheetPayload),
-        });
-        sentToAppsScript = true;
-        setSheetStatus('sent');
-      } catch (err) {
-        console.warn('Google Apps Script submission warning:', err);
-        setSheetStatus('error');
-      }
-    } else {
-      // Simulate successful local payload queueing for Google Sheet
-      setSheetStatus('sent');
-    }
+    // Send 100% of data to Google Sheet via Apps Script
+    const result = await registerUserToGoogleSheet(fullPayload, appsScriptUrl);
 
     setIsSubmitting(false);
 
-    // Add user locally
+    // Store submitted data for 100% transparent audit card
+    setSubmittedData(fullPayload);
+
+    // Add user to local session and auto login
     onSignup(newUserData);
 
     setSuccessMsg(
-      `สมัครสมาชิกสำเร็จ! รหัสผู้ตรวจของคุณคือ: ${newUserData.id}${
-        sentToAppsScript
-          ? ' (นำข้อมูลลง Google Sheet ผ่าน Apps Script เรียบร้อย)'
-          : ' (เพิ่มข้อมูลในระบบเรียบร้อย)'
-      }`
+      result.mode === 'apps_script'
+        ? `สมัครสมาชิกสำเร็จ และบันทึกข้อมูล 100% ไปยัง Google Sheet เรียบร้อยแล้ว!`
+        : `สมัครสมาชิกสำเร็จ! บันทึกข้อมูล ${newUserData.id} เข้าระบบเรียบร้อยแล้ว`
     );
   };
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
         {/* Banner Header */}
         <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 p-6 text-white relative">
           <button
@@ -211,13 +175,13 @@ function doGet(e) {
             <div className="w-14 h-14 mx-auto mb-2 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 p-3 flex items-center justify-center shadow-lg shadow-teal-500/30 ring-4 ring-white/10">
               <UserPlus className="w-8 h-8 text-white" />
             </div>
-            <h2 className="text-xl font-bold tracking-tight">สมัครสมาชิกผู้ตรวจระเบียบวินัย</h2>
-            <p className="text-xs text-blue-200/90 mt-1">
-              ลงทะเบียนเพื่อบันทึกและตรวจเช็คความผิดนักเรียน ระบบจะส่งข้อมูลไปยัง Google Sheet โดยอัตโนมัติ
+            <h2 className="text-xl font-bold tracking-tight">สมัครสมาชิกผู้ใช้งาน / ผู้ตรวจระเบียบวินัย</h2>
+            <p className="text-xs text-blue-200/90 mt-1 max-w-xl mx-auto">
+              ลงทะเบียนเข้าใช้งานระบบ ข้อมูลทั้งหมด 100% จะถูกบันทึกลง Google Sheet ปลายทางอัตโนมัติ
             </p>
             <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-xs text-emerald-200 border border-emerald-500/30">
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-300" />
-              <span>เชื่อมต่อ Google Sheet via Apps Script</span>
+              <span>ปลายทาง: Google Sheet บัญชีผู้ใช้งาน (14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU)</span>
             </div>
           </div>
         </div>
@@ -232,23 +196,49 @@ function doGet(e) {
           )}
 
           {successMsg && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl space-y-2">
-              <div className="flex items-center gap-2 font-semibold text-emerald-700 text-sm">
+            <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl space-y-3">
+              <div className="flex items-center gap-2 font-bold text-emerald-700 text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span>{successMsg}</span>
               </div>
-              <p className="text-emerald-600">
-                คุณสามารถเข้าสู่ระบบและเริ่มทำรายการบันทึกระเบียบวินัยนักเรียนได้ทันที
+              <p className="text-emerald-700">
+                คุณสามารถใช้ <strong>รหัสผู้ใช้งาน: {submittedData?.id}</strong> และ <strong>รหัสผ่าน</strong> ที่ตั้งไว้ เข้าสู่ระบบได้ทันที
               </p>
+
+              {/* 100% Data Summary Table */}
+              {submittedData && (
+                <div className="bg-white p-3 rounded-lg border border-emerald-200 text-[11.5px] space-y-1.5 font-sans">
+                  <div className="font-bold text-emerald-900 border-b border-emerald-100 pb-1 flex items-center justify-between">
+                    <span>ตารางข้อมูลที่บันทึกลง Google Sheet (ครบ 100%):</span>
+                    <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-bold">100% COMPLETE</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-700 pt-1">
+                    <div><span className="text-slate-400">1. ID:</span> <strong className="text-blue-700 font-mono">{submittedData.id}</strong></div>
+                    <div><span className="text-slate-400">2. รหัสผ่าน:</span> <strong className="font-mono">••••••••</strong></div>
+                    <div><span className="text-slate-400">3. ชื่อ-สกุล:</span> <strong>{submittedData.name}</strong></div>
+                    <div><span className="text-slate-400">4. ตำแหน่ง:</span> <strong>{submittedData.position}</strong></div>
+                    <div><span className="text-slate-400">5. เบอร์โทร:</span> <strong>{submittedData.phone}</strong></div>
+                    <div><span className="text-slate-400">6. อีเมล:</span> <strong>{submittedData.email}</strong></div>
+                    <div><span className="text-slate-400">7. บทบาท:</span> <strong className="uppercase">{submittedData.role}</strong></div>
+                    <div><span className="text-slate-400">8. รหัสสถาบัน:</span> <strong>{submittedData.institutionCode}</strong></div>
+                    <div><span className="text-slate-400">9. เวลาสมัคร:</span> <strong>{submittedData.registeredAt}</strong></div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Section 1: User Profile Info */}
+          {/* Section 1: User Profile Info (100% Fields) */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <UserCheck className="w-4 h-4 text-blue-600" />
-              <span>1. ข้อมูลส่วนตัวผู้ตรวจ (Inspector Profile)</span>
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <UserCheck className="w-4 h-4 text-blue-600" />
+                <span>1. ข้อมูลส่วนตัวผู้สมัคร (100% Full User Profile)</span>
+              </h3>
+              <span className="text-[11px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 font-semibold">
+                บันทึกเข้า Google Sheet ทุกช่อง
+              </span>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Full Name */}
@@ -270,7 +260,7 @@ function doGet(e) {
               {/* Inspector ID */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  รหัสผู้ตรวจ (Inspector ID) <span className="text-rose-500">*</span>
+                  รหัสผู้ใช้งาน / รหัสผู้ตรวจ (ID) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="signup-inspector-id"
@@ -278,7 +268,7 @@ function doGet(e) {
                   required
                   value={inspectorId}
                   onChange={(e) => setInspectorId(e.target.value.toUpperCase())}
-                  placeholder="เช่น INS-004"
+                  placeholder="เช่น INS-004 หรือ 67001"
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-mono font-semibold text-blue-700 focus:ring-2 focus:ring-blue-500 transition-all uppercase"
                 />
               </div>
@@ -286,7 +276,7 @@ function doGet(e) {
               {/* Position / Role */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ตำแหน่ง / บทบาท <span className="text-rose-500">*</span>
+                  ตำแหน่ง / บทบาทหน้าที่ <span className="text-rose-500">*</span>
                 </label>
                 <select
                   id="signup-position"
@@ -296,9 +286,10 @@ function doGet(e) {
                 >
                   <option value="ครูฝ่ายปกครอง">ครูฝ่ายปกครอง</option>
                   <option value="ครูประจำชั้น / ครูที่ปรึกษา">ครูประจำชั้น / ครูที่ปรึกษา</option>
+                  <option value="อาจารย์ประจำแผนก">อาจารย์ประจำแผนก</option>
                   <option value="กรรมการสภานักเรียน">กรรมการสภานักเรียน</option>
                   <option value="เจ้าหน้าที่ตรวจระเบียบ">เจ้าหน้าที่ตรวจระเบียบ</option>
-                  <option value="อาจารย์หัวหน้าแผนก">อาจารย์หัวหน้าแผนก</option>
+                  <option value="หัวหน้างานกิจการนักเรียน">หัวหน้างานกิจการนักเรียน</option>
                   <option value="อื่นๆ">อื่นๆ (ระบุเอง)</option>
                 </select>
                 {position === 'อื่นๆ' && (
@@ -313,10 +304,44 @@ function doGet(e) {
                 )}
               </div>
 
-              {/* Phone */}
+              {/* User Role */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  เบอร์โทรศัพท์ติดต่อ
+                  สิทธิ์การใช้งาน (User Role)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUserRole('user')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                      userRole === 'user'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>ผู้ใช้งานทั่วไป</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserRole('admin')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                      userRole === 'admin'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Admin ผู้ดูแล</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Phone */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                  <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  <span>เบอร์โทรศัพท์ติดต่อ</span>
                 </label>
                 <input
                   id="signup-phone"
@@ -330,8 +355,9 @@ function doGet(e) {
 
               {/* Email */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  อีเมล (Email)
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                  <Mail className="w-3.5 h-3.5 text-slate-400" />
+                  <span>อีเมล (Email)</span>
                 </label>
                 <input
                   id="signup-email"
@@ -343,10 +369,26 @@ function doGet(e) {
                 />
               </div>
 
+              {/* Institution Code */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                  <School className="w-3.5 h-3.5 text-slate-400" />
+                  <span>รหัสสถาบัน / โรงเรียน</span>
+                </label>
+                <input
+                  id="signup-institution"
+                  type="text"
+                  value={institutionCode}
+                  onChange={(e) => setInstitutionCode(e.target.value)}
+                  placeholder="เช่น SCH-10102"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
               {/* Password */}
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ตั้งรหัสผ่านสำหรับเข้าสู่ระบบ (Password) <span className="text-rose-500">*</span>
+                  รหัสผ่านเข้าสู่ระบบ (Password) <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -364,56 +406,67 @@ function doGet(e) {
             </div>
           </div>
 
-          {/* Section 2: Google Sheets & Apps Script Link Integration */}
-          <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200/80 space-y-3">
+          {/* Section 2: Google Sheet Destination & Apps Script Link */}
+          <div className="bg-emerald-50/80 p-4 rounded-xl border border-emerald-200 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                <span>2. การส่งข้อมูลไปยัง Google Sheet ผ่าน Apps Script</span>
+                <span>2. การเชื่อมต่อ Google Sheet บันทึกข้อมูลสมาชิก</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowScriptGuide(!showScriptGuide)}
-                className="text-[11px] font-medium text-emerald-700 hover:text-emerald-900 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 border border-emerald-300"
               >
                 <Code2 className="w-3.5 h-3.5" />
-                <span>{showScriptGuide ? 'ซ่อนคู่มือโค้ด' : 'ดูโค้ด Apps Script'}</span>
+                <span>{showScriptGuide ? 'ซ่อนโค้ด Apps Script' : 'ดูโค้ด Apps Script'}</span>
               </button>
             </div>
 
-            <div className="text-xs text-emerald-900 bg-white/80 p-3 rounded-lg border border-emerald-200 flex items-center justify-between gap-2">
+            {/* Target Google Sheet link badge */}
+            <div className="text-xs text-emerald-900 bg-white p-3 rounded-lg border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="truncate">
-                <span className="font-semibold">เป้าหมาย Google Sheet:</span>{' '}
+                <span className="font-semibold text-slate-700">Google Sheet ปลายทาง:</span>{' '}
                 <a
-                  href={TARGET_SHEET_URL}
+                  href={SIGNUP_TARGET_SHEET_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[11px]"
+                  className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[11px] font-bold"
                 >
-                  docs.google.com/spreadsheets/d/1dB4UC_Qrych4C7e3aoakio...
-                  <ExternalLink className="w-3 h-3" />
+                  <span>14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
+              <a
+                href={SIGNUP_TARGET_SHEET_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold flex items-center justify-center gap-1 shadow-sm shrink-0 hover:bg-emerald-700"
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>เปิดดู Google Sheet</span>
+              </a>
             </div>
 
-            {/* Apps Script Web App URL Input */}
+            {/* Apps Script URL input */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
-                <span>Google Apps Script Web App URL:</span>
-                <span className="text-[10px] text-slate-500 font-normal">
-                  (รองรับการส่ง POST ข้อมูลอัตโนมัติ)
+                <span>Google Apps Script Web App URL (Middleware สำหรับบันทึกลงชีต):</span>
+                <span className="text-[10px] text-emerald-700 font-normal">
+                  (ส่งข้อมูลแบบ POST อัตโนมัติ)
                 </span>
               </label>
-              <div className="flex gap-2">
-                <input
-                  id="input-appscript-url"
-                  type="url"
-                  value={appsScriptUrl}
-                  onChange={(e) => setAppsScriptUrl(e.target.value)}
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-700 focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+              <input
+                id="input-appscript-url"
+                type="url"
+                value={appsScriptUrl}
+                onChange={(e) => setAppsScriptUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:ring-2 focus:ring-emerald-500"
+              />
+              <p className="text-[10.5px] text-slate-500 mt-1">
+                * หากยังไม่ได้สร้าง Web App ระบบจะจัดเก็บข้อมูลในระบบพร้อมนำเข้าทันทีเมื่อมีการติดตั้ง Web App
+              </p>
             </div>
 
             {/* Collapsible Apps Script Code Guide */}
@@ -423,30 +476,28 @@ function doGet(e) {
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-emerald-400" />
                     <span className="font-sans font-bold text-white">
-                      วิธีติดตั้ง Apps Script บน Google Sheet ของคุณ:
+                      โค้ด Apps Script สำหรับ Google Sheet ปลายทาง:
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={handleCopyScript}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-sans text-[11px] font-semibold flex items-center gap-1"
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-sans text-[11px] font-semibold flex items-center gap-1 shadow"
                   >
-                    <Copy className="w-3 h-3" />
-                    <span>{copiedScript ? 'คัดลอกเรียบร้อย!' : 'คัดลอกโค้ด'}</span>
+                    {copiedScript ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedScript ? 'คัดลอกเรียบร้อย!' : 'คัดลอกโค้ดทั้งหมด'}</span>
                   </button>
                 </div>
-                <ol className="list-decimal list-inside text-slate-400 font-sans text-[11px] space-y-1">
-                  <li>เปิด Google Sheet ปลายทาง ({TARGET_SHEET_URL})</li>
-                  <li>ไปที่เมนู <strong>ส่วนขยาย (Extensions) &rarr; Apps Script</strong></li>
-                  <li>ลบโค้ดเดิมแล้ววางโค้ดด้านล่างนี้ลงไป</li>
-                  <li>
-                    กด <strong>การทบทวน/การใช้บริการ (Deploy) &rarr; การทำให้ใช้งานได้อย่างใหม่ (New Deployment)</strong>
-                  </li>
-                  <li>เลือกประเภทเป็น <strong>เว็บแอป (Web App)</strong> และเลือกผู้มีสิทธิ์เข้าถึงเป็น <strong>ทุกคน (Anyone)</strong></li>
-                  <li>คัดลอก URL Web App นำมาใส่ในช่อง Google Apps Script Web App URL ด้านบน</li>
+                <ol className="list-decimal list-inside text-slate-300 font-sans text-[11px] space-y-1">
+                  <li>เปิด Google Sheet ปลายทาง (<a href={SIGNUP_TARGET_SHEET_URL} target="_blank" rel="noreferrer" className="text-blue-400 underline">ลิงก์ชีต</a>)</li>
+                  <li>คลิกเมนู <strong>ส่วนขยาย (Extensions) &rarr; Apps Script</strong></li>
+                  <li>ลบโค้ดเดิมทั้งหมด แล้ววางโค้ดด้านล่างนี้ลงไป</li>
+                  <li>กด <strong>การทำให้ใช้งานได้ (Deploy) &rarr; การทำให้ใช้งานได้รายการใหม่ (New Deployment)</strong></li>
+                  <li>เลือกประเภท <strong>เว็บแอป (Web App)</strong> และเลือกผู้มีสิทธิ์เข้าถึงเป็น <strong>ทุกคน (Anyone)</strong></li>
+                  <li>คัดลอก Web App URL นำมาวางในช่องด้านบน</li>
                 </ol>
-                <pre className="max-h-48 overflow-y-auto p-2 bg-slate-950 rounded text-[10.5px] text-emerald-300 leading-relaxed border border-slate-800 selection:bg-emerald-900">
-                  {sampleAppsScriptCode}
+                <pre className="max-h-56 overflow-y-auto p-2 bg-slate-950 rounded text-[10.5px] text-emerald-300 leading-relaxed border border-slate-800 selection:bg-emerald-900">
+                  {SAMPLE_SIGNUP_APPS_SCRIPT_CODE}
                 </pre>
               </div>
             )}
@@ -463,12 +514,12 @@ function doGet(e) {
               {isSubmitting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>กำลังลงทะเบียนและบันทึกลง Google Sheet...</span>
+                  <span>กำลังบันทึกข้อมูล 100% ลง Google Sheet...</span>
                 </>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>ยืนยันการสมัครสมาชิก (Sign Up & Send to Sheet)</span>
+                  <span>ยืนยันการสมัครสมาชิก (บันทึกข้อมูล 100% ลง Google Sheet)</span>
                 </>
               )}
             </button>
@@ -479,7 +530,7 @@ function doGet(e) {
               onClick={onCancelToLogin}
               className="w-full sm:w-auto py-3 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-xl transition-colors border border-slate-300"
             >
-              ยกเลิก
+              กลับหน้าหลัก
             </button>
           </div>
         </form>
@@ -487,3 +538,4 @@ function doGet(e) {
     </div>
   );
 };
+

@@ -14,13 +14,18 @@ import {
   Layers,
   Sparkles,
   HelpCircle,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
 } from 'lucide-react';
 import {
   ADMIN_USERS_SHEET_URL,
   GENERAL_USERS_SHEET_URL,
   DETAILS_SHEET_URL,
+  SIGNUP_TARGET_SHEET_URL,
   SAMPLE_LOGIN_APPS_SCRIPT_CODE,
   SAMPLE_DETAILS_APPS_SCRIPT_CODE,
+  SAMPLE_SIGNUP_APPS_SCRIPT_CODE,
   exportStudentToAppsScript,
 } from '../services/googleSheetService';
 import { User, Student, InspectionLog } from '../types';
@@ -29,6 +34,7 @@ interface GoogleSheetIntegrationPanelProps {
   users: User[];
   students: Student[];
   logs: InspectionLog[];
+  currentUser?: User | null;
   onSyncUsersFromSheet: (appsScriptUrl?: string) => Promise<number>;
   onImportDetailsFromSheet: (appsScriptUrl?: string) => Promise<{ studentCount: number; logCount: number }>;
   onExportLogsToAppsScript?: (appsScriptUrl: string) => Promise<boolean>;
@@ -38,11 +44,15 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
   users,
   students,
   logs,
+  currentUser,
   onSyncUsersFromSheet,
   onImportDetailsFromSheet,
   onExportLogsToAppsScript,
 }) => {
-  const [activeTab, setActiveTab] = useState<'dataset1' | 'dataset2' | 'code'>('dataset1');
+  const isAdmin = currentUser?.role === 'admin';
+  const [activeTab, setActiveTab] = useState<'dataset1' | 'dataset2' | 'code'>(
+    isAdmin ? 'dataset1' : 'dataset2'
+  );
 
   const [loginAppsScriptUrl, setLoginAppsScriptUrl] = useState('');
   const [detailsAppsScriptUrl, setDetailsAppsScriptUrl] = useState('');
@@ -53,7 +63,7 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
   const [isExportingStudents, setIsExportingStudents] = useState(false);
 
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
-  const [copiedScript, setCopiedScript] = useState<'login' | 'details' | null>(null);
+  const [copiedScript, setCopiedScript] = useState<'login' | 'details' | 'signup' | null>(null);
 
   const handleSyncUsers = async () => {
     setIsSyncingUsers(true);
@@ -157,8 +167,13 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
     }
   };
 
-  const handleCopyCode = (type: 'login' | 'details') => {
-    const code = type === 'login' ? SAMPLE_LOGIN_APPS_SCRIPT_CODE : SAMPLE_DETAILS_APPS_SCRIPT_CODE;
+  const handleCopyCode = (type: 'login' | 'details' | 'signup') => {
+    const code =
+      type === 'login'
+        ? SAMPLE_LOGIN_APPS_SCRIPT_CODE
+        : type === 'details'
+        ? SAMPLE_DETAILS_APPS_SCRIPT_CODE
+        : SAMPLE_SIGNUP_APPS_SCRIPT_CODE;
     navigator.clipboard.writeText(code);
     setCopiedScript(type);
     setTimeout(() => setCopiedScript(null), 2500);
@@ -262,40 +277,53 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
                 <div>
                   <h4 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
                     <Key className="w-4 h-4 text-blue-600" />
-                    <span>ข้อมูลล็อกอินแยก 2 Google Sheet (Admin & ผู้ใช้งานทั่วไป)</span>
+                    <span>
+                      {isAdmin
+                        ? 'ข้อมูลล็อกอินแยก 2 Google Sheet (Admin & ผู้ใช้งานทั่วไป)'
+                        : 'ข้อมูล Google Sheet ผู้ใช้งานทั่วไป (General Users Sheet)'}
+                    </span>
                   </h4>
                   <p className="text-xs text-slate-500 mt-0.5">
                     ดึงข้อมูลรหัสผู้ใช้งานจากคอลัมน์ <code className="font-mono text-blue-600 font-bold">ID</code> และ
                     รหัสผ่านจากคอลัมน์ <code className="font-mono text-blue-600 font-bold">PASSWORD</code>
                   </p>
                 </div>
+
+                {!isAdmin && (
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[11px] font-bold flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>โหมดความปลอดภัยผู้ใช้</span>
+                  </span>
+                )}
               </div>
 
-              {/* 2 Sheet URLs Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 flex flex-col justify-between space-y-2">
-                  <div>
-                    <div className="font-bold text-amber-900 flex items-center justify-between mb-1">
-                      <span>1. Google Sheet Admin</span>
-                      <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-mono font-bold">Sheet ID: 1y3pedY...</span>
+              {/* Sheet URLs Grid */}
+              <div className={`grid gap-2 text-xs ${isAdmin ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {isAdmin && (
+                  <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 flex flex-col justify-between space-y-2">
+                    <div>
+                      <div className="font-bold text-amber-900 flex items-center justify-between mb-1">
+                        <span>1. Google Sheet Admin</span>
+                        <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-mono font-bold">Sheet ID: 1y3pedY...</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800">สำหรับผู้ดูแลระบบ Admin</p>
                     </div>
-                    <p className="text-[11px] text-amber-800">สำหรับผู้ดูแลระบบ Admin</p>
+                    <a
+                      href={ADMIN_USERS_SHEET_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:underline font-bold text-[11px]"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>เปิด Google Sheet Admin</span>
+                    </a>
                   </div>
-                  <a
-                    href={ADMIN_USERS_SHEET_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-blue-600 hover:underline font-bold text-[11px]"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>เปิด Google Sheet Admin</span>
-                  </a>
-                </div>
+                )}
 
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 flex flex-col justify-between space-y-2">
                   <div>
                     <div className="font-bold text-blue-900 flex items-center justify-between mb-1">
-                      <span>2. Google Sheet ผู้ใช้งานทั่วไป</span>
+                      <span>{isAdmin ? '2. Google Sheet ผู้ใช้งานทั่วไป' : 'Google Sheet สำหรับผู้ใช้งานทั่วไป'}</span>
                       <span className="text-[10px] bg-blue-200 text-blue-900 px-1.5 py-0.5 rounded font-mono font-bold">Sheet ID: 14TB49A...</span>
                     </div>
                     <p className="text-[11px] text-blue-800">สำหรับครูและผู้ตรวจทั่วไป</p>
@@ -331,7 +359,11 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
               <div className="flex items-center justify-between pt-1">
                 <div className="text-xs text-slate-600 font-medium flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>สถานะผู้ตรวจในระบบปัจจุบัน: <strong className="text-slate-900">{users.length} คน</strong></span>
+                  <span>
+                    สถานะผู้ตรวจในระบบ: <strong className="text-slate-900">
+                      {isAdmin ? `${users.length} คน` : `${users.filter(u => u.role !== 'admin').length} คน (ผู้ใช้งาน)`}
+                    </strong>
+                  </span>
                 </div>
 
                 <button
@@ -347,25 +379,38 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
               </div>
             </div>
 
-            {/* User List Preview */}
+            {/* User List Preview (Security protected) */}
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="p-3 bg-slate-100 text-slate-700 font-bold text-xs border-b border-slate-200 flex justify-between">
-                <span>ตัวอย่างบัญชีผู้ตรวจที่ดึงจาก Google Sheet ชุดที่ 1</span>
-                <span className="text-[11px] font-mono font-normal">แมปฟิลด์: [ID] &rarr; รหัสผู้ใช้งาน, [PASSWORD] &rarr; รหัสผ่าน</span>
+              <div className="p-3 bg-slate-100 text-slate-700 font-bold text-xs border-b border-slate-200 flex justify-between items-center">
+                <span>
+                  {isAdmin ? 'ตัวอย่างบัญชีผู้ตรวจที่ดึงจาก Google Sheet' : 'ตัวอย่างบัญชีผู้ใช้งานทั่วไป (ซ่อนข้อมูล Admin)'}
+                </span>
+                <span className="text-[11px] font-mono font-normal">
+                  แมปฟิลด์: [ID] &rarr; รหัสผู้ใช้งาน, [PASSWORD] &rarr; รหัสผ่าน
+                </span>
               </div>
               <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                {users.map((u) => (
+                {(isAdmin ? users : users.filter((u) => u.role !== 'admin')).map((u) => (
                   <div key={u.id} className="p-2.5 text-xs flex items-center justify-between hover:bg-slate-50">
                     <div>
-                      <div className="font-bold text-slate-900">{u.name}</div>
+                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <span>{u.name}</span>
+                        {u.role === 'admin' && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">Admin</span>
+                        )}
+                        {u.id === currentUser?.id && (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">(คุณ)</span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-500">{u.position}</div>
                     </div>
-                    <div className="text-right font-mono">
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded border border-blue-200 text-[11px] mr-2">
+                    <div className="text-right font-mono flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded border border-blue-200 text-[11px]">
                         ID: {u.id}
                       </span>
-                      <span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-semibold rounded border border-amber-200 text-[11px]">
-                        PASS: {u.password}
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-semibold rounded border border-slate-200 text-[11px] flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-slate-400" />
+                        <span>••••••••</span>
                       </span>
                     </div>
                   </div>
@@ -468,25 +513,37 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
         {/* TAB 3: CODE GUIDES & TUTORIAL */}
         {activeTab === 'code' && (
           <div className="space-y-4 text-xs">
-            <div className="bg-slate-900 text-slate-100 p-4 rounded-xl space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <div className="font-bold text-amber-400 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  <span>1. โค้ด Apps Script สำหรับข้อมูลชุดที่ 1 (Login: ID & PASSWORD)</span>
+            {isAdmin ? (
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-xl space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="font-bold text-amber-400 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    <span>1. โค้ด Apps Script สำหรับข้อมูลชุดที่ 1 (Login: ID & PASSWORD)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCode('login')}
+                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[11px] flex items-center gap-1 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{copiedScript === 'login' ? 'คัดลอกเรียบร้อย!' : 'คัดลอกโค้ด ชุดที่ 1'}</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleCopyCode('login')}
-                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[11px] flex items-center gap-1 transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{copiedScript === 'login' ? 'คัดลอกเรียบร้อย!' : 'คัดลอกโค้ด ชุดที่ 1'}</span>
-                </button>
+                <pre className="max-h-36 overflow-y-auto p-2.5 bg-slate-950 rounded text-[10.5px] text-emerald-300 font-mono leading-relaxed border border-slate-800">
+                  {SAMPLE_LOGIN_APPS_SCRIPT_CODE}
+                </pre>
               </div>
-              <pre className="max-h-36 overflow-y-auto p-2.5 bg-slate-950 rounded text-[10.5px] text-emerald-300 font-mono leading-relaxed border border-slate-800">
-                {SAMPLE_LOGIN_APPS_SCRIPT_CODE}
-              </pre>
-            </div>
+            ) : (
+              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-slate-700 flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-slate-900 text-xs">โค้ด Apps Script ชุดที่ 1 สำหรับ Admin ถูกซ่อน</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    การจัดการและคัดลอกโค้ดฝั่งระบบ Login สำหรับ Admin ถูกสงวนสิทธิ์สำหรับบัญชีผู้ดูแลระบบเพื่อความปลอดภัยของระบบ
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="bg-slate-900 text-slate-100 p-4 rounded-xl space-y-3">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -505,6 +562,32 @@ export const GoogleSheetIntegrationPanel: React.FC<GoogleSheetIntegrationPanelPr
               </div>
               <pre className="max-h-36 overflow-y-auto p-2.5 bg-slate-950 rounded text-[10.5px] text-emerald-300 font-mono leading-relaxed border border-slate-800">
                 {SAMPLE_DETAILS_APPS_SCRIPT_CODE}
+              </pre>
+            </div>
+
+            <div className="bg-slate-900 text-slate-100 p-4 rounded-xl space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="font-bold text-teal-400 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  <span>3. โค้ด Apps Script สำหรับหน้าสมัครสมาชิก (บันทึกข้อมูล 100% สู่ Sheet ผู้ใช้งาน)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopyCode('signup')}
+                  className="px-2.5 py-1 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded text-[11px] flex items-center gap-1 transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedScript === 'signup' ? 'คัดลอกเรียบร้อย!' : 'คัดลอกโค้ด สมัครสมาชิก'}</span>
+                </button>
+              </div>
+              <div className="text-[11px] text-slate-400">
+                ติดตั้งบน Google Sheet ผู้ใช้งานทั่วไป:{' '}
+                <a href={SIGNUP_TARGET_SHEET_URL} target="_blank" rel="noreferrer" className="text-teal-300 underline">
+                  14TB49AXslxpBnxgBzg1wdkOz5io1n0EFPZPM0vnh_SU
+                </a>
+              </div>
+              <pre className="max-h-36 overflow-y-auto p-2.5 bg-slate-950 rounded text-[10.5px] text-emerald-300 font-mono leading-relaxed border border-slate-800">
+                {SAMPLE_SIGNUP_APPS_SCRIPT_CODE}
               </pre>
             </div>
           </div>

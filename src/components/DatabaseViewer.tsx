@@ -12,7 +12,11 @@ import {
   Download, 
   CheckCircle,
   Key,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ShieldCheck,
+  Lock,
+  UserCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { GoogleSheetIntegrationPanel } from './GoogleSheetIntegrationPanel';
 import { exportStudentToAppsScript } from '../services/googleSheetService';
@@ -22,6 +26,7 @@ interface DatabaseViewerProps {
   students: Student[];
   logs: InspectionLog[];
   categories: ViolationCategory[];
+  currentUser?: User | null;
   onAddStudent: (newStudent: Student) => void;
   onAddCategory: (newCategory: ViolationCategory) => void;
   onResetData: () => void;
@@ -35,6 +40,7 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
   students,
   logs,
   categories,
+  currentUser,
   onAddStudent,
   onAddCategory,
   onResetData,
@@ -42,7 +48,16 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
   onImportDetailsFromSheet,
   onExportLogsToAppsScript,
 }) => {
+  const isAdmin = currentUser?.role === 'admin';
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'students' | 'logs' | 'categories' | 'googlesheet'>('googlesheet');
+
+  // Filter display users strictly based on permissions:
+  // Admin sees all users; Normal users ONLY see their own profile data (no other users, no admin users)
+  const displayUsers = isAdmin
+    ? users
+    : currentUser
+    ? users.filter((u) => u.id.toLowerCase() === currentUser.id.toLowerCase())
+    : [];
 
   // Modal State for Adding New Student
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
@@ -157,24 +172,33 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportJSON}
-              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export DB (JSON)</span>
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('คุณต้องการรีเซ็ตข้อมูลกลับสู่ค่าเริ่มต้นสาธิตหรือไม่?')) {
-                  onResetData();
-                }
-              }}
-              className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>คืนค่าเริ่มต้น</span>
-            </button>
+            {isAdmin ? (
+              <>
+                <button
+                  onClick={handleExportJSON}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Export DB (JSON)</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm('คุณต้องการรีเซ็ตข้อมูลกลับสู่ค่าเริ่มต้นสาธิตหรือไม่?')) {
+                      onResetData();
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>คืนค่าเริ่มต้น</span>
+                </button>
+              </>
+            ) : (
+              <div className="px-3 py-1.5 bg-blue-50 text-blue-800 border border-blue-200 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-blue-600" />
+                <span>โหมดผู้ใช้งาน: <span className="font-bold text-blue-900">{currentUser?.name}</span></span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -194,7 +218,7 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
             </div>
             <div className="text-xs font-bold">Google Sheet Apps Script</div>
             <div className={`text-[10px] ${activeSubTab === 'googlesheet' ? 'text-emerald-100' : 'text-emerald-700'}`}>
-              (Dataset 1 & 2 Middleware)
+              {isAdmin ? '(Dataset 1 & 2 Middleware)' : '(ระบบเชื่อมโยงข้อมูล)'}
             </div>
           </button>
 
@@ -262,11 +286,13 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
           >
             <div className="flex items-center justify-between">
               <Users className="w-5 h-5 mb-1" />
-              <span className="text-xs font-bold font-mono">{users.length} คน</span>
+              <span className="text-xs font-bold font-mono">
+                {isAdmin ? `${users.length} คน` : 'บัญชีของคุณ'}
+              </span>
             </div>
-            <div className="text-xs font-bold">4. ตารางผู้ตรวจ</div>
+            <div className="text-xs font-bold">{isAdmin ? '4. ตารางผู้ตรวจ' : '4. ข้อมูลผู้ใช้งานของคุณ'}</div>
             <div className={`text-[10px] ${activeSubTab === 'users' ? 'text-blue-100' : 'text-slate-500'}`}>
-              (User Table)
+              {isAdmin ? '(User Table)' : '(My Profile)'}
             </div>
           </button>
         </div>
@@ -280,6 +306,7 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
             users={users}
             students={students}
             logs={logs}
+            currentUser={currentUser}
             onSyncUsersFromSheet={onSyncUsersFromSheet}
             onImportDetailsFromSheet={onImportDetailsFromSheet}
             onExportLogsToAppsScript={onExportLogsToAppsScript}
@@ -447,30 +474,108 @@ export const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
         {/* Table 4: Users / Inspectors */}
         {activeSubTab === 'users' && (
           <div>
-            <div className="p-4 bg-slate-50 border-b border-slate-200">
-              <h3 className="font-bold text-sm text-slate-800">ตารางข้อมูลผู้ใช้งาน / ผู้ตรวจ (User Table)</h3>
-              <p className="text-[11px] text-slate-500">ฟิลด์: [ID ผู้ตรวจ (PK), ชื่อ-นามสกุล, ตำแหน่ง, รหัสผ่าน]</p>
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-blue-600" />
+                  <span>
+                    {isAdmin ? 'ตารางข้อมูลผู้ใช้งานและผู้ดูแลระบบ (User Table)' : 'ข้อมูลบัญชีผู้ใช้งานของคุณ (Current User Profile)'}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  {isAdmin
+                    ? 'ฟิลด์: [ID ผู้ใช้งาน (PK), ชื่อ-นามสกุล, สิทธิ์, ตำแหน่ง, เบอร์โทร, อีเมล, รหัสผ่าน (เข้ารหัส)]'
+                    : 'แสดงข้อมูลบัญชีของคุณที่กำลังเข้าสู่ระบบ (ข้อมูล Admin และผู้ใช้อื่นถูกซ่อนเพื่อความปลอดภัย)'}
+                </p>
+              </div>
+
+              {!isAdmin && (
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>ระบบปกป้องข้อมูลส่วนบุคคล (Privacy Mode Active)</span>
+                </div>
+              )}
             </div>
+
+            {/* Privacy Alert Banner for Normal Users */}
+            {!isAdmin && (
+              <div className="m-4 p-3.5 bg-blue-50/90 border border-blue-200/90 rounded-xl text-xs text-blue-950 flex items-start gap-3">
+                <ShieldAlert className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold text-blue-900 flex items-center gap-2">
+                    <span>นโยบายความปลอดภัยของระบบ (Access Control & Data Isolation)</span>
+                    <span className="px-2 py-0.2 rounded-full bg-blue-200 text-blue-900 text-[10px] font-bold">ความปลอดภัยสูงสุด</span>
+                  </div>
+                  <p className="text-[11.5px] text-blue-800 leading-relaxed">
+                    ระบบได้ทำการ <strong>จำกัดการแสดงผลเฉพาะข้อมูลของผู้ใช้งานที่กำลังใช้งานเท่านั้น</strong> (คุณ: <strong className="text-blue-950">{currentUser?.name}</strong> รหัส <code>{currentUser?.id}</code>) โดยทำการ <strong>ซ่อนข้อมูลบัญชีผู้ดูแลระบบ (Admin) และข้อมูลส่วนตัวของผู้ใช้งานท่านอื่นทั้งหมด</strong> เพื่อรักษาความปลอดภัยของเว็บแอปพลิเคชันและปกป้องข้อมูลส่วนบุคคลตามมาตรฐานความปลอดภัย
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100/70 text-slate-700 border-b border-slate-200">
-                    <th className="p-3 font-semibold">ID ผู้ตรวจ (PK)</th>
+                    <th className="p-3 font-semibold">ID ผู้ใช้งาน (PK)</th>
                     <th className="p-3 font-semibold">ชื่อ-นามสกุล</th>
-                    <th className="p-3 font-semibold">ตำแหน่ง</th>
-                    <th className="p-3 font-semibold">รหัสผ่าน</th>
+                    <th className="p-3 font-semibold">สิทธิ์การใช้งาน</th>
+                    <th className="p-3 font-semibold">ตำแหน่ง / หน้าที่</th>
+                    <th className="p-3 font-semibold">เบอร์โทรศัพท์</th>
+                    <th className="p-3 font-semibold">อีเมลติดต่อ</th>
+                    <th className="p-3 font-semibold">รหัสผ่าน (ความปลอดภัย)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-800">
-                  {users.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50">
-                      <td className="p-3 font-mono font-bold text-blue-600">{u.id}</td>
-                      <td className="p-3 font-bold text-slate-900">{u.name}</td>
-                      <td className="p-3 text-slate-600">{u.position}</td>
-                      <td className="p-3 font-mono text-slate-400">•••••••• ({u.password})</td>
+                  {displayUsers.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-3 font-mono font-bold text-blue-600">
+                        <span className="px-2 py-1 rounded bg-blue-50 border border-blue-200">
+                          {u.id}
+                        </span>
+                      </td>
+                      <td className="p-3 font-bold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <span>{u.name}</span>
+                          {u.id === currentUser?.id && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold border border-emerald-200">
+                              (คุณ)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase ${
+                            u.role === 'admin'
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : 'bg-blue-100 text-blue-800 border border-blue-200'
+                          }`}
+                        >
+                          {u.role === 'admin' ? 'Admin' : 'ผู้ใช้งานทั่วไป'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-700">{u.position || 'ผู้ตรวจระเบียบ'}</td>
+                      <td className="p-3 font-mono text-slate-600">{u.phone || '-'}</td>
+                      <td className="p-3 text-slate-600">{u.email || '-'}</td>
+                      <td className="p-3">
+                        <div className="inline-flex items-center gap-1.5 text-slate-500 font-mono bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                          <Lock className="w-3 h-3 text-slate-400" />
+                          <span>••••••••</span>
+                          <span className="text-[10px] text-emerald-700 font-sans font-semibold">
+                            (ถูกปกป้อง)
+                          </span>
+                        </div>
+                      </td>
                     </tr>
                   ))}
+                  {displayUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                        ไม่พบข้อมูลผู้ใช้งานที่ตรงกับสิทธิ์การเข้าถึง
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
