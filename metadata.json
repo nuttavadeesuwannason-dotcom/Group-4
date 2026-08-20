@@ -1,0 +1,6 @@
+{
+  "name": "ระบบตรวจเช็คระเบียบวินัยนักเรียน",
+  "description": "ระบบลงชื่อเข้าใช้ บันทึกความผิดระเบียบวินัย ค้นหาประวัติคะแนนพฤติกรรม และจัดการข้อมูลนักเรียน/ผู้ตรวจ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
